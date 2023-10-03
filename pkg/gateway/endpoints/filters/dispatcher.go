@@ -18,8 +18,8 @@ import (
 	"net/http"
 )
 
-func WithDispatcher(handler http.Handler, dispacher http.Handler) http.Handler {
+func WithDispatcher(handler http.Handler, dispatcher http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		dispacher.ServeHTTP(w, req)
+		dispatcher.ServeHTTP(w, req)
 	})
 }

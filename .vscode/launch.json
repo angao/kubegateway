@@ -12,18 +12,13 @@
 			"program": "${workspaceFolder}/cmd/kube-gateway/main.go",
 			"cwd": "${workspaceFolder}",
 			"args": [
-				"--etcd-servers=http://localhost:2379",
-				"--secure-port=9443",
-				"--etcd-prefix=/registry/KubeGateway",
-				"--proxy-secure-ports=6443",
-				"--authorization-mode=AlwaysAllow",
+				"--secure-port=8443",
 				"--v=6",
 				"--log-dir=output",
 				"--logtostderr=false",
 				"--enable-proxy-access-log=true",
-				"--enable-reuse-port",
-				"--loopback-client-token=kube-gateway-privileged",
-			],
-		},
+				"--loopback-client-token=kube-gateway-privileged"
+			]
+		}
 	]
 }

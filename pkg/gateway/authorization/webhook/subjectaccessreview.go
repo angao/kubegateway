@@ -65,7 +65,7 @@ func NewMultiClusterSubjectAccessReviewAuthorizer(clientProvider clusters.Client
 }
 
 func (a *MultiClusterSubjectAccessReviewAuthorizer) Authorize(ctx context.Context, attr authorizer.Attributes) (authorized authorizer.Decision, reason string, err error) {
-	info, ok := request.ExtraReqeustInfoFrom(ctx)
+	info, ok := request.ExtraRequestInfoFrom(ctx)
 	if !ok {
 		return a.decisionOnError, "", fmt.Errorf("failed to get request host from context")
 	}
@@ -87,7 +87,7 @@ func (a *MultiClusterSubjectAccessReviewAuthorizer) Authorize(ctx context.Contex
 			}()
 		}
 	}
-	cache := c.(*cache.LRUExpireCache)
+	lruCache := c.(*cache.LRUExpireCache)
 
 	r := a.subjectAccessReviewFromAttributes(attr)
 	key, err := json.Marshal(r.Spec)
@@ -95,7 +95,7 @@ func (a *MultiClusterSubjectAccessReviewAuthorizer) Authorize(ctx context.Contex
 		return a.decisionOnError, "", err
 	}
 
-	if entry, ok := cache.Get(string(key)); ok {
+	if entry, ok := lruCache.Get(string(key)); ok {
 		r.Status = entry.(authorizationv1.SubjectAccessReviewStatus)
 	} else {
 		var result *authorizationv1.SubjectAccessReview
@@ -112,9 +112,9 @@ func (a *MultiClusterSubjectAccessReviewAuthorizer) Authorize(ctx context.Contex
 		r.Status = result.Status
 		if shouldCache(attr) {
 			if r.Status.Allowed {
-				cache.Add(string(key), r.Status, a.allowCacheTTL)
+				lruCache.Add(string(key), r.Status, a.allowCacheTTL)
 			} else {
-				cache.Add(string(key), r.Status, a.denyCacheTTL)
+				lruCache.Add(string(key), r.Status, a.denyCacheTTL)
 			}
 		}
 	}

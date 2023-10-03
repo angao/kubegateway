@@ -15,36 +15,77 @@
 package clusters
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
 	"fmt"
+	"math"
+	"math/big"
 	"testing"
+	"time"
 
-	"github.com/zoumo/golib/cert"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/cert"
+	"k8s.io/client-go/util/keyutil"
 
 	proxyv1alpha1 "github.com/kubewharf/kubegateway/pkg/apis/proxy/v1alpha1"
 	"github.com/kubewharf/kubegateway/pkg/flowcontrol"
 )
 
 func createCAandCert() (serverKey []byte, serverCert []byte, caCert []byte) {
-	caKey, _ := cert.NewRSAPrivateKey()
-	ca, err := cert.NewSelfSignedCertificate(cert.Options{
+	caKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	ca, err := cert.NewSelfSignedCACert(cert.Config{
 		CommonName: "test",
 	}, caKey)
 	if err != nil {
 		panic(err)
 	}
 
-	key, _ := cert.NewRSAPrivateKey()
-	crt, err := cert.NewSignedCert(cert.Options{CommonName: "server"}, key, caKey, ca)
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	crt, err := NewSignedCert(&cert.Config{CommonName: "server"}, key, ca, caKey)
 	if err != nil {
 		panic(err)
 	}
-	caPEM := cert.NewPEMForCert(ca)
-	keyPEM := cert.NewPEMForRSAKey(key)
-	crtPEM := cert.NewPEMForCert(crt)
-	return keyPEM.EncodeToMemory(), crtPEM.EncodeToMemory(), caPEM.EncodeToMemory()
+	caPEM := &pem.Block{Type: cert.CertificateBlockType, Bytes: ca.Raw}
+	keyPEM := &pem.Block{Type: keyutil.RSAPrivateKeyBlockType, Bytes: x509.MarshalPKCS1PrivateKey(key)}
+	crtPEM := &pem.Block{Type: cert.CertificateBlockType, Bytes: crt.Raw}
+	return pem.EncodeToMemory(keyPEM), pem.EncodeToMemory(crtPEM), pem.EncodeToMemory(caPEM)
+}
+
+// NewSignedCert creates a signed certificate using the given CA certificate and key
+func NewSignedCert(cfg *cert.Config, key crypto.Signer, caCert *x509.Certificate, caKey crypto.Signer) (*x509.Certificate, error) {
+	serial, err := rand.Int(rand.Reader, new(big.Int).SetInt64(math.MaxInt64))
+	if err != nil {
+		return nil, err
+	}
+	if len(cfg.CommonName) == 0 {
+		return nil, errors.New("must specify a CommonName")
+	}
+
+	certTmpl := x509.Certificate{
+		Subject: pkix.Name{
+			CommonName:   cfg.CommonName,
+			Organization: cfg.Organization,
+		},
+		DNSNames:     cfg.AltNames.DNSNames,
+		IPAddresses:  cfg.AltNames.IPs,
+		SerialNumber: serial,
+		NotBefore:    caCert.NotBefore,
+		NotAfter:     time.Now().Add(365 * 24 * time.Hour).UTC(),
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  cfg.Usages,
+	}
+	certDERBytes, err := x509.CreateCertificate(rand.Reader, &certTmpl, caCert, key.Public(), caKey)
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(certDERBytes)
 }
 
 func newTestUpstreamClusterConfig() *proxyv1alpha1.UpstreamCluster {

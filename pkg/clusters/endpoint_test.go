@@ -29,7 +29,7 @@ func TestEndpointInfo_ReadyAndReason(t *testing.T) {
 			"ready",
 			endpointStatus{
 				Disabled: false,
-				Healthy:  true,
+				Ready:    true,
 			},
 			true,
 			"",
@@ -38,7 +38,7 @@ func TestEndpointInfo_ReadyAndReason(t *testing.T) {
 			"disabled",
 			endpointStatus{
 				Disabled: true,
-				Healthy:  true,
+				Ready:    true,
 			},
 			false,
 			`endpoint="" is disabled.`,
@@ -47,12 +47,12 @@ func TestEndpointInfo_ReadyAndReason(t *testing.T) {
 			"unhealthy",
 			endpointStatus{
 				Disabled: false,
-				Healthy:  false,
+				Ready:    false,
 				Reason:   "Timeout",
 				Message:  "request timeout",
 			},
 			false,
-			`endpoint="" is unhealthy, reason="Timeout", message="request timeout".`,
+			`endpoint="" is not ready, reason="Timeout", message="request timeout".`,
 		},
 	}
 	for i := range tests {

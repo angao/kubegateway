@@ -15,11 +15,11 @@
 package server
 
 import (
-	apiserver "github.com/kubewharf/apiserver-runtime/pkg/server"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	serverstorage "k8s.io/apiserver/pkg/server/storage"
 	"k8s.io/kubernetes/pkg/master"
 
+	apiserver "github.com/kubewharf/apiserver-runtime/pkg/server"
 	"github.com/kubewharf/kubegateway/pkg/gateway/controllers"
 	// RESTStorage installers
 )
@@ -30,7 +30,8 @@ type Config struct {
 }
 
 type ExtraConfig struct {
-	UpstreamClusterController *controllers.UpstreamClusterController
+	//UpstreamClusterController *controllers.UpstreamClusterController
+	UpstreamClusterManager *controllers.UpstreamClusterManager
 }
 
 // Complete fills in any fields not set that are required to have valid data. It's mutating the receiver.
@@ -59,11 +60,11 @@ func (c *CompletedConfig) New(delegationTarget genericapiserver.DelegationTarget
 		return nil, err
 	}
 
-	if c.ExtraConfig.UpstreamClusterController != nil {
+	if c.ExtraConfig.UpstreamClusterManager != nil {
 		// start upstream controller
 		startUpstreamControllerHookName := "kube-gateway-start-upstream-controller"
-		err := s.AddPostStartHook(startUpstreamControllerHookName, func(context genericapiserver.PostStartHookContext) error {
-			go c.ExtraConfig.UpstreamClusterController.Run(context.StopCh)
+		err := s.AddPostStartHook(startUpstreamControllerHookName, func(ctx genericapiserver.PostStartHookContext) error {
+			c.ExtraConfig.UpstreamClusterManager.Run()
 			return nil
 		})
 		if err != nil {

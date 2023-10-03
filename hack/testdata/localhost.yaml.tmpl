@@ -1,7 +1,7 @@
 apiVersion: proxy.kubegateway.io/v1alpha1
 kind: UpstreamCluster
 metadata:
-  name: localhost
+  name: kubegateway-control-plane
 spec:
   clientConfig:
     caData: <client-ca>
@@ -18,6 +18,8 @@ spec:
       verbs:
       - '*'
     strategy: RoundRobin
+  logging:
+    mode: "on"
   secureServing:
     clientCAData: <serving-client-ca>
     keyData: <serving-key>

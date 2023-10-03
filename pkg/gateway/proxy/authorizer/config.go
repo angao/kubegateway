@@ -23,7 +23,6 @@ import (
 	authrizationwebhook "github.com/kubewharf/kubegateway/pkg/gateway/authorization/webhook"
 )
 
-// nolint:revive
 type AuthorizerConfig struct {
 	CacheAuthorizedTTL    time.Duration
 	CacheUnauthorizedTTL  time.Duration

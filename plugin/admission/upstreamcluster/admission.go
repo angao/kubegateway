@@ -77,8 +77,8 @@ func (p *upstreamclusterPlugin) Validate(ctx context.Context, a admission.Attrib
 	if cluster.Annotations != nil {
 		featuregate := cluster.Annotations[features.FeatureGateAnnotationKey]
 		if len(featuregate) > 0 {
-			copy := features.DefaultMutableFeatureGate.DeepCopy()
-			if err := copy.Set(featuregate); err != nil {
+			copied := features.DefaultMutableFeatureGate.DeepCopy()
+			if err := copied.Set(featuregate); err != nil {
 				allErrs = append(allErrs, field.Invalid(field.NewPath("metadata").Child("annotations").Key(features.FeatureGateAnnotationKey), featuregate, err.Error()))
 			}
 		}
@@ -127,7 +127,7 @@ func filterRules(rules []string) (filtered []string) {
 			matchAll = true
 			break
 		}
-		// legecy group will be ""
+		// legacy group will be ""
 		if len(r) > 0 && r[0] == '-' {
 			reversed = append(reversed, r)
 		} else {

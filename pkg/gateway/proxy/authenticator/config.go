@@ -57,7 +57,6 @@ func (c *ClientCertAuthenticationConfig) New() authenticator.Request {
 }
 
 type TokenAuthenticationConfig struct {
-
 	// remote cluster token auth
 	ClusterClientProvider clusters.ClientProvider
 }
@@ -80,7 +79,7 @@ type AuthenricatorConfig struct {
 }
 
 func (c AuthenricatorConfig) New() (authenticator.Request, *spec.SecurityDefinitions, error) {
-	authenticators := []authenticator.Request{}
+	var authenticators []authenticator.Request
 	securityDefinitions := spec.SecurityDefinitions{}
 
 	// front-proxy first, then remote
@@ -124,12 +123,12 @@ func (c AuthenricatorConfig) New() (authenticator.Request, *spec.SecurityDefinit
 		if c.Anonymous {
 			return anonymous.NewAuthenticator(), &securityDefinitions, nil
 		}
-		return nil, nil, errors.New("No authentication method configured")
+		return nil, nil, errors.New("no authentication method configured")
 	}
 
-	authenticator := group.NewAuthenticatedGroupAdder(unionauth.New(authenticators...))
+	req := group.NewAuthenticatedGroupAdder(unionauth.New(authenticators...))
 	if c.Anonymous {
-		authenticator = unionauth.NewFailOnError(authenticator, anonymous.NewAuthenticator())
+		req = unionauth.NewFailOnError(req, anonymous.NewAuthenticator())
 	}
-	return authenticator, &securityDefinitions, nil
+	return req, &securityDefinitions, nil
 }

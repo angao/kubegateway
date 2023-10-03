@@ -19,20 +19,18 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/kubewharf/apiserver-runtime/pkg/scheme"
-	apiserver "github.com/kubewharf/apiserver-runtime/pkg/server"
-	recommendedoptions "github.com/kubewharf/apiserver-runtime/pkg/server/options"
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
-	_ "k8s.io/component-base/metrics/prometheus/workqueue" // for workqueue metric registration
 	"k8s.io/klog"
 	"k8s.io/kube-openapi/pkg/common"
 
+	"github.com/kubewharf/apiserver-runtime/pkg/scheme"
+	apiserver "github.com/kubewharf/apiserver-runtime/pkg/server"
+	recommendedoptions "github.com/kubewharf/apiserver-runtime/pkg/server/options"
 	"github.com/kubewharf/kubegateway/cmd/kube-gateway/app/options"
 	"github.com/kubewharf/kubegateway/pkg/clusters"
 	"github.com/kubewharf/kubegateway/pkg/gateway/controllers"
-	controlplaneserver "github.com/kubewharf/kubegateway/pkg/gateway/controlplane"
 	gatewayfilters "github.com/kubewharf/kubegateway/pkg/gateway/endpoints/filters"
 	"github.com/kubewharf/kubegateway/pkg/gateway/endpoints/request"
 	proxyserver "github.com/kubewharf/kubegateway/pkg/gateway/proxy"
@@ -40,73 +38,80 @@ import (
 	nativeopenapi "github.com/kubewharf/kubegateway/staging/src/k8s.io/openapi/generated/openapi"
 )
 
-func CreateProxyConfig(
-	o *options.ProxyOptions,
-	controlplaneOptions *options.ControlPlaneServerRunOptions,
-	controlplaneServerConfig *controlplaneserver.Config,
-) (serverConfig *proxyserver.Config, lastErr error) {
+func CreateProxyConfig(o *options.ProxyOptions) (*proxyserver.Config, error) {
 	recommendedConfig := apiserver.NewRecommendedConfig(scheme.Scheme, scheme.Codecs)
-	// NOTE: set loopback client config ortherwise error will occur when creating a new generic apiserver
-	recommendedConfig.LoopbackClientConfig = controlplaneServerConfig.RecommendedConfig.LoopbackClientConfig
+	// NOTE: set loopback client config otherwise error will occur when creating a new generic apiserver
+	//recommendedConfig.LoopbackClientConfig = controlplaneServerConfig.RecommendedConfig.LoopbackClientConfig
+
 	// enable all master default api resources
 	recommendedConfig.Config.MergedResourceConfig = proxyserver.DefaultAPIResourceConfigSource()
 	// openapi
 	recommendedConfig.WithOpenapiConfig("KubeGatewayProxy", GetNativeOpenAPIDefinitions)
 
-	if lastErr = o.SecureServing.ApplyTo(&recommendedConfig.SecureServing, *controlplaneOptions.SecureServing); lastErr != nil {
-		return
+	if err := o.SecureServing.ApplyTo(&recommendedConfig.SecureServing, &recommendedConfig.LoopbackClientConfig); err != nil {
+		return nil, err
 	}
 
 	// customize http error log to filter out some noisy log
 	// referred to k8s.io/component-base/logs/logs.go#InitLogs()
 	recommendedConfig.SecureServing.ErrorLog = log.New(proxyHTTPErrorLogWriter{}, "", 0)
 
+	// create upstream cluster manager
+	clusterController := controllers.NewUpstreamClusterManager(o.UpstreamCluster.Path)
+
 	// create upstream controller
-	clusterController := controllers.NewUpstreamClusterController(controlplaneServerConfig.ExtraConfig.GatewaySharedInformerFactory.Proxy().V1alpha1().UpstreamClusters())
+	//clusterController := controllers.NewUpstreamClusterController(controlplaneServerConfig.ExtraConfig.GatewaySharedInformerFactory.Proxy().V1alpha1().UpstreamClusters())
 	// Dynamic SNI for upstream cluster
 	recommendedConfig.Config.SecureServing.DynamicClientConfig = clusterController
 	// Proxy handler
 	recommendedConfig.Config.BuildHandlerChainFunc = buildProxyHandlerChainFunc(clusterController, o.Logging.EnableProxyAccessLog)
 
 	// Proxy authentication
-	if lastErr = o.Authentication.ApplyTo(
+	if err := o.Authentication.ApplyTo(
 		&recommendedConfig.Authentication,
 		recommendedConfig.SecureServing,
 		recommendedConfig.OpenAPIConfig,
 		clusterController,
 		clusterController,
-		controlplaneOptions.Authentication,
-	); lastErr != nil {
-		return
+	); err != nil {
+		return nil, err
 	}
 
 	// Proxy authorization
-	if lastErr = o.Authorization.ApplyTo(&recommendedConfig.Config, clusterController); lastErr != nil {
-		return
+	if err := o.Authorization.ApplyTo(&recommendedConfig.Config, clusterController); err != nil {
+		return nil, err
+	}
+
+	if err := o.ServerRun.ApplyTo(&recommendedConfig.Config); err != nil {
+		return nil, err
+	}
+
+	if err := o.Features.ApplyTo(&recommendedConfig.Config); err != nil {
+		return nil, err
 	}
 
 	// apply other useful options
-	recommenedOptions := buildProxyRecommenedOptions(o, controlplaneOptions)
-	if lastErr = recommenedOptions.ApplyTo(recommendedConfig, nil, nil); lastErr != nil {
-		return
+	recommendedOptions := buildProxyRecommendedOptions(o)
+	if err := recommendedOptions.ApplyTo(recommendedConfig, nil, nil); err != nil {
+		return nil, err
 	}
 
-	serverConfig = &proxyserver.Config{
+	serverConfig := &proxyserver.Config{
 		RecommendedConfig: recommendedConfig,
 		ExtraConfig: proxyserver.ExtraConfig{
-			UpstreamClusterController: clusterController,
+			UpstreamClusterManager: clusterController,
 		},
 	}
 	return serverConfig, nil
 }
 
-func buildProxyRecommenedOptions(o *options.ProxyOptions, controlplaneOptions *options.ControlPlaneServerRunOptions) *recommendedoptions.RecommendedOptions {
-	recommenedOptions := recommendedoptions.NewRecommendedOptions().WithProcessInfo(o.ProcessInfo)
-	recommenedOptions.ServerRun = controlplaneOptions.ServerRun
-	recommenedOptions.FeatureGate = controlplaneOptions.FeatureGate
-	recommenedOptions.Features = controlplaneOptions.Features
+func buildProxyRecommendedOptions(o *options.ProxyOptions) *recommendedoptions.RecommendedOptions {
+	recommendedOptions := recommendedoptions.NewRecommendedOptions().WithProcessInfo(o.ProcessInfo)
+	recommendedOptions.ServerRun = o.ServerRun
+	recommendedOptions.FeatureGate = o.FeatureGate
+	recommendedOptions.Features = o.Features
 	// TODO: add other config
-	return recommenedOptions
+	return recommendedOptions
 }
 
 func buildProxyHandlerChainFunc(clusterManager clusters.Manager, enableAccessLog bool) func(apiHandler http.Handler, c *genericapiserver.Config) http.Handler {
@@ -122,7 +127,7 @@ func buildProxyHandlerChainFunc(clusterManager clusters.Manager, enableAccessLog
 		failedHandler = genericapifilters.WithFailedAuthenticationAudit(failedHandler, c.AuditBackend, c.AuditPolicyChecker)
 		handler = genericapifilters.WithAuthentication(handler, c.Authentication.Authenticator, failedHandler, c.Authentication.APIAudiences)
 		handler = genericfilters.WithCORS(handler, c.CorsAllowedOriginList, nil, nil, nil, "true")
-		// disabel timeout, let upstream cluster handle it
+		// disable timeout, let upstream cluster handle it
 		// handler = gatewayfilters.WithTimeoutForNonLongRunningRequests(handler, c.LongRunningFunc, c.RequestTimeout)
 		handler = genericfilters.WithWaitGroup(handler, c.LongRunningFunc, c.HandlerChainWaitGroup)
 		// new gateway handler chain

@@ -50,11 +50,11 @@ func (o *AuthorizationOptions) ToAuthorizationConfig(clientProvider clusters.Cli
 }
 
 func (o *AuthorizationOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.DurationVar(&o.CacheAuthorizedTTL, "proxy-authorization-cache-authorized-ttl",
+	fs.DurationVar(&o.CacheAuthorizedTTL, "authorization-cache-authorized-ttl",
 		o.CacheAuthorizedTTL,
 		"The duration to cache 'authorized' responses from the subject request authorizer.")
 	fs.DurationVar(&o.CacheUnauthorizedTTL,
-		"proxy-authorization-cache-unauthorized-ttl", o.CacheUnauthorizedTTL,
+		"authorization-cache-unauthorized-ttl", o.CacheUnauthorizedTTL,
 		"The duration to cache 'unauthorized' responses from the subject request authorizer.")
 }
 

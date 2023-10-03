@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/zoumo/goset"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
 	"k8s.io/client-go/kubernetes"
@@ -66,8 +66,8 @@ func (s *endpointPickStrategy) Pop() (*EndpointInfo, error) {
 	if len(s.upstreams) == 0 {
 		return nil, ErrNoReadyEndpoints
 	}
-	readyEndpoints := []*EndpointInfo{}
-	unreadyReason := []string{}
+	var readyEndpoints []*EndpointInfo
+	var unreadyReason []string
 	for _, ep := range s.upstreams {
 		info, ok := s.cluster.Endpoints.Load(ep)
 		if ok {
@@ -121,7 +121,7 @@ type ClusterInfo struct {
 
 	// upstream endpoint client rest config, the host must be replaced when using it
 	restConfig *rest.Config
-	// current synced flow controler spec
+	// current synced flow control spec
 	currentFlowControlSpec atomic.Value
 	// current synced tls config for secure seving
 	currentSecureServingTLSConfig atomic.Value
@@ -129,7 +129,7 @@ type ClusterInfo struct {
 	currentDispatchPolicies atomic.Value
 	// current logging config
 	currentLoggingConfig atomic.Value
-	featuregate          featuregate.MutableFeatureGate
+	featureGate          featuregate.MutableFeatureGate
 
 	healthCheckIntervalSeconds time.Duration
 	endpointHeathCheck         EndpointHealthCheck
@@ -157,20 +157,20 @@ func NewEmptyClusterInfo(clusterName string, config *rest.Config, healthCheck En
 		flowcontrol:                gatewayflowcontrol.NewFlowControls(),
 		loadbalancer:               sync.Map{},
 		endpointHeathCheck:         healthCheck,
-		featuregate:                features.DefaultMutableFeatureGate.DeepCopy(),
+		featureGate:                features.DefaultMutableFeatureGate.DeepCopy(),
 	}
 	return info
 }
 
 // CreateClusterInfo try every endpoint to find a ready endpoint, and then init rest config
 func CreateClusterInfo(cluster *proxyv1alpha1.UpstreamCluster, healthCheck EndpointHealthCheck) (*ClusterInfo, error) {
-	restconfig, err := buildClusterRESTConfig(cluster)
+	restConfig, err := buildClusterRESTConfig(cluster)
 	if err != nil {
 		return nil, err
 	}
 
 	klog.Infof("create valid rest config for cluster: %v", cluster.Name)
-	info := NewEmptyClusterInfo(cluster.Name, restconfig, healthCheck)
+	info := NewEmptyClusterInfo(cluster.Name, restConfig, healthCheck)
 	err = info.Sync(cluster)
 	if err != nil {
 		return nil, err
@@ -307,50 +307,47 @@ func (c *ClusterInfo) Sync(cluster *proxyv1alpha1.UpstreamCluster) error {
 
 func (c *ClusterInfo) syncEndpoints(servers []proxyv1alpha1.UpstreamClusterServer) error {
 	// update endpoints
-	currentEPs := goset.NewSetFromStrings(c.AllEndpoints())
-	wantedEPs := goset.NewSet()
+	currentEPs := sets.NewString(c.AllEndpoints()...)
+	wantedEPs := sets.NewString()
 
 	for _, e := range servers {
-		wantedEPs.Add(e.Endpoint) //nolint
+		wantedEPs.Insert(e.Endpoint)
 	}
 
-	deleted := currentEPs.Diff(wantedEPs)
-	added := wantedEPs.Diff(currentEPs)
+	deleted := currentEPs.Difference(wantedEPs)
+	added := wantedEPs.Difference(currentEPs)
 
 	if added.Len() > 0 || deleted.Len() > 0 {
 		// servers changed, reset loadbalancer
 		c.loadbalancer = sync.Map{}
 	}
 
-	deleted.Range(func(index int, elem interface{}) bool {
-		ep := elem.(string)
-		info, loaded := c.Endpoints.LoadAndDelete(ep)
+	for elem := range deleted {
+		info, loaded := c.Endpoints.LoadAndDelete(elem)
 		if !loaded {
-			return true
+			continue
 		}
+
 		klog.Infof("[cluster info] endpoint=%q is deleted from cluster %q", info.Endpoint, c.Cluster)
 		if info.cancel != nil {
 			info.cancel()
 		}
-		return true
-	})
+	}
 
-	var syncErr error
-
-	disabled := goset.NewSet()
+	disabled := sets.NewString()
 	for _, server := range servers {
 		if server.Disabled != nil && *server.Disabled {
-			disabled.Add(server.Endpoint) //nolint
+			disabled.Insert(server.Endpoint) //nolint
 		}
 	}
-	wantedEPs.Range(func(index int, elem interface{}) bool {
-		ep := elem.(string)
-		syncErr = c.addOrUpdateEndpoint(ep, disabled.Contains(ep))
-		// stop loop if add or update error
-		return syncErr == nil
-	})
 
-	return syncErr
+	for ep := range wantedEPs {
+		if err := c.addOrUpdateEndpoint(ep, disabled.Has(ep)); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (c *ClusterInfo) syncFlowControlLocked(newObj proxyv1alpha1.FlowControl) {
@@ -365,16 +362,16 @@ func (c *ClusterInfo) syncFlowControlLocked(newObj proxyv1alpha1.FlowControl) {
 
 	oldMap := map[string]proxyv1alpha1.FlowControlSchema{}
 
-	oldset := goset.NewSet()
-	newset := goset.NewSet()
+	oldset := sets.NewString()
+	newset := sets.NewString()
 
 	for i, schema := range oldObj.Schemas {
-		oldset.Add(schema.Name) //nolint
+		oldset.Insert(schema.Name) //nolint
 		oldMap[schema.Name] = oldObj.Schemas[i]
 	}
 
 	for _, newSchema := range newObj.Schemas {
-		newset.Add(newSchema.Name) //nolint
+		newset.Insert(newSchema.Name) //nolint
 		oldSchema := oldMap[newSchema.Name]
 		oldType := gatewayflowcontrol.GuessFlowControlSchemaType(oldSchema)
 		newType := gatewayflowcontrol.GuessFlowControlSchemaType(newSchema)
@@ -400,14 +397,12 @@ func (c *ClusterInfo) syncFlowControlLocked(newObj proxyv1alpha1.FlowControl) {
 		}
 	}
 
-	deleted := oldset.Diff(newset)
+	deleted := oldset.Difference(newset)
 
-	deleted.Range(func(_ int, elem interface{}) bool {
-		name := elem.(string)
+	for name := range deleted {
 		klog.Infof("[cluster info] cluster=%q delete flowcontrol schema=%q", c.Cluster, name)
 		c.flowcontrol.Delete(name)
-		return true
-	})
+	}
 }
 
 func (c *ClusterInfo) syncSecureServingConfigLocked(newSecureServing proxyv1alpha1.SecureServing) error {
@@ -460,12 +455,12 @@ func (c *ClusterInfo) syncSecureServingConfigLocked(newSecureServing proxyv1alph
 			klog.Infof("[cluster info] cluster=%q cleanup key and cert", c.Cluster)
 			newCfg.certs = nil
 		} else if len(newSecureServing.KeyData) > 0 && len(newSecureServing.CertData) > 0 {
-			cert, err := tls.X509KeyPair(newSecureServing.CertData, newSecureServing.KeyData)
+			keyPair, err := tls.X509KeyPair(newSecureServing.CertData, newSecureServing.KeyData)
 			if err != nil {
 				return fmt.Errorf("invalid serving cert keypair: %v", err)
 			}
 			klog.Infof("[cluster info] cluster=%q update key and cert", c.Cluster)
-			newCfg.certs = []tls.Certificate{cert}
+			newCfg.certs = []tls.Certificate{keyPair}
 		}
 	}
 
@@ -562,7 +557,7 @@ func (c *ClusterInfo) addOrUpdateEndpoint(endpoint string, disabled bool) error 
 	// initial endpoint status
 	initStatus := endpointStatus{
 		Disabled: disabled,
-		Healthy:  false,
+		Ready:    false,
 	}
 
 	ctx, cancel := context.WithCancel(c.Context())
@@ -575,7 +570,7 @@ func (c *ClusterInfo) addOrUpdateEndpoint(endpoint string, disabled bool) error 
 		proxyConfig:           &http2configCopy,
 		ProxyTransport:        ts,
 		proxyUpgradeConfig:    &upgradeConfigCopy,
-		PorxyUpgradeTransport: ts2,
+		ProxyUpgradeTransport: ts2,
 		clientset:             client,
 	}
 
@@ -587,7 +582,7 @@ func (c *ClusterInfo) addOrUpdateEndpoint(endpoint string, disabled bool) error 
 			klog.V(2).Infof("[endpoint info] start health checking for cluster=%q, endpoint=%q", c.Cluster, info.Endpoint)
 			defer klog.V(2).Infof("[endpoint info] stop health checking for cluster=%q, endpoint=%q", c.Cluster, info.Endpoint)
 			//nolint
-			wait.PollImmediateUntil(
+			_ = wait.PollImmediateUntil(
 				c.healthCheckIntervalSeconds,
 				func() (done bool, err error) {
 					done = c.endpointHeathCheck(info)
@@ -602,19 +597,19 @@ func (c *ClusterInfo) addOrUpdateEndpoint(endpoint string, disabled bool) error 
 }
 
 func (c *ClusterInfo) FeatureEnabled(key featuregate.Feature) bool {
-	return c.featuregate.Enabled(key)
+	return c.featureGate.Enabled(key)
 }
 
 func (c *ClusterInfo) syncFeatureGate(annotations map[string]string) error {
-	featuregate := annotations[features.FeatureGateAnnotationKey]
-	if len(featuregate) == 0 {
-		if !features.IsDefault(c.featuregate) {
-			// reset featuregate
-			c.featuregate = features.DefaultMutableFeatureGate.DeepCopy()
+	featureGate := annotations[features.FeatureGateAnnotationKey]
+	if len(featureGate) == 0 {
+		if !features.IsDefault(c.featureGate) {
+			// reset featureGate
+			c.featureGate = features.DefaultMutableFeatureGate.DeepCopy()
 		}
 		return nil
 	}
-	return c.featuregate.Set(featuregate)
+	return c.featureGate.Set(featureGate)
 }
 
 // upstream policy    enabled

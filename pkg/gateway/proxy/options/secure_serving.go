@@ -15,90 +15,53 @@
 package options
 
 import (
-	"fmt"
-
 	"github.com/spf13/pflag"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/server"
-	"k8s.io/apiserver/pkg/server/options"
-
-	contronplaneoptions "github.com/kubewharf/kubegateway/pkg/gateway/controlplane/options"
+	genericoptions "k8s.io/apiserver/pkg/server/options"
+	"k8s.io/client-go/rest"
 )
 
 type SecureServingOptions struct {
-	Ports []int
+	*genericoptions.SecureServingOptionsWithLoopback
 }
 
 func NewSecureServingOptions() *SecureServingOptions {
-	return &SecureServingOptions{}
+	sso := genericoptions.NewSecureServingOptions()
+
+	// We are composing recommended options for an aggregated api-server,
+	// whose client is typically a proxy multiplexing many operations ---
+	// notably including long-running ones --- into one HTTP/2 connection
+	// into this server.  So allow many concurrent operations.
+	sso.HTTP2MaxStreamsPerConnection = 1000
+	return &SecureServingOptions{
+		SecureServingOptionsWithLoopback: sso.WithLoopback(),
+	}
 }
 
-func (s *SecureServingOptions) ValidateWith(controlplaneSecureServingOptions contronplaneoptions.SecureServingOptions) []error {
+func (s *SecureServingOptions) Validate() []error {
 	if s == nil {
 		return nil
 	}
-	errors := []error{}
 
-	usedPorts := sets.NewInt(controlplaneSecureServingOptions.BindPort)
-	for _, port := range controlplaneSecureServingOptions.OtherPorts {
-		usedPorts.Insert(port)
-	}
-
-	if len(s.Ports) == 0 {
-		errors = append(errors, fmt.Errorf("--proxy-secure-ports must be set"))
-	}
-	for _, port := range s.Ports {
-		if port < 1 || port > 65535 {
-			errors = append(errors, fmt.Errorf("ports in --proxy-secure-ports %v must be between 1 and 65535, inclusive. It cannot be turned off with 0", port))
-		}
-		if usedPorts.Has(port) {
-			errors = append(errors, fmt.Errorf("ports in --proxy-secure-ports %v is duplicate in --secure-port or --other-secure-ports", port))
-		} else {
-			usedPorts.Insert(port)
-		}
-	}
-
-	return errors
+	var errs []error
+	errs = append(errs, s.SecureServingOptionsWithLoopback.Validate()...)
+	return errs
 }
 
 func (s *SecureServingOptions) AddFlags(fs *pflag.FlagSet) {
 	if s == nil {
 		return
 	}
-	fs.IntSliceVar(&s.Ports, "proxy-secure-ports", s.Ports, "A list of ports which to serve HTTPS for apiserver proxy with authentication and authorization.")
+	s.SecureServingOptions.AddFlags(fs)
 }
 
-func (s *SecureServingOptions) ApplyTo(
-	secureServingInfo **server.SecureServingInfo,
-	controlplaneSecureServingOptions contronplaneoptions.SecureServingOptions,
-) error {
-	options := deepcopySecureServingOptions(controlplaneSecureServingOptions)
-
-	options.BindPort = s.Ports[0]
-	options.Listener = nil
-	options.Required = true
-	if len(s.Ports) > 1 {
-		options.OtherPorts = s.Ports[1:]
-	} else {
-		options.OtherPorts = nil
+func (s *SecureServingOptions) ApplyTo(secureServingInfo **server.SecureServingInfo, loopbackClientConfig **rest.Config) error {
+	if s == nil || s.SecureServingOptionsWithLoopback == nil || s.SecureServingOptions == nil || secureServingInfo == nil {
+		return nil
 	}
 
-	// we don't need loopbackconfig for proxy
-	return options.ApplyTo(secureServingInfo, nil)
-}
-
-func deepcopySecureServingOptions(in contronplaneoptions.SecureServingOptions) contronplaneoptions.SecureServingOptions {
-	out := in
-	if in.SecureServingOptionsWithLoopback != nil {
-		in, out := &in.SecureServingOptionsWithLoopback, &out.SecureServingOptionsWithLoopback
-		*out = new(options.SecureServingOptionsWithLoopback)
-		**out = **in
-
-		if (*in).SecureServingOptions != nil {
-			in, out := &(*in).SecureServingOptions, &(*out).SecureServingOptions
-			*out = new(options.SecureServingOptions)
-			**out = **in
-		}
+	if err := s.SecureServingOptionsWithLoopback.ApplyTo(secureServingInfo, loopbackClientConfig); err != nil {
+		return err
 	}
-	return out
+	return nil
 }

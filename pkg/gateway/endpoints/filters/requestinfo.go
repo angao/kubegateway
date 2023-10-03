@@ -24,7 +24,7 @@ import (
 	"github.com/kubewharf/kubegateway/pkg/gateway/endpoints/request"
 )
 
-// WithHost attaches a request host to the context.
+// WithExtraRequestInfo WithHost attaches a request host to the context.
 func WithExtraRequestInfo(handler http.Handler, resolver request.ExtraRequestInfoResolver) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
@@ -33,12 +33,12 @@ func WithExtraRequestInfo(handler http.Handler, resolver request.ExtraRequestInf
 			responsewriters.InternalError(w, req, fmt.Errorf("failed to create ExtraRequestInfo: %v", err))
 			return
 		}
-		req = req.WithContext(request.WithExtraReqeustInfo(ctx, info))
+		req = req.WithContext(request.WithExtraRequestInfo(ctx, info))
 		handler.ServeHTTP(w, req)
 	})
 }
 
-// record impersonator because request user will be replaced by impersonatee
+// WithImpersonator record impersonator because request user will be replaced by impersonatee
 func WithImpersonator(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
@@ -47,11 +47,11 @@ func WithImpersonator(handler http.Handler) http.Handler {
 			handler.ServeHTTP(w, req)
 			return
 		}
-		info, ok := request.ExtraReqeustInfoFrom(ctx)
+		info, ok := request.ExtraRequestInfoFrom(ctx)
 		if ok && info.IsImpersonateRequest {
 			info.Impersonator = user
 		}
-		req = req.WithContext(request.WithExtraReqeustInfo(ctx, info))
+		req = req.WithContext(request.WithExtraRequestInfo(ctx, info))
 		handler.ServeHTTP(w, req)
 	})
 }

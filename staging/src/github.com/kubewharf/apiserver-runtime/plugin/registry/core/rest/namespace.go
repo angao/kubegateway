@@ -29,14 +29,14 @@ import (
 	"k8s.io/kubernetes/pkg/util/async"
 )
 
-type NamepsaceLegacyRESTStorageProvider struct {
+type NamespaceLegacyRESTStorageProvider struct {
 }
 
-func (NamepsaceLegacyRESTStorageProvider) ResourceName() string {
+func (NamespaceLegacyRESTStorageProvider) ResourceName() string {
 	return "namespaces"
 }
 
-func (NamepsaceLegacyRESTStorageProvider) NewRESTStorage(apiResourceConfigSource serverstorage.APIResourceConfigSource, restOptionsGetter generic.RESTOptionsGetter) (map[string]rest.Storage, bool, error) {
+func (NamespaceLegacyRESTStorageProvider) NewRESTStorage(apiResourceConfigSource serverstorage.APIResourceConfigSource, restOptionsGetter generic.RESTOptionsGetter) (map[string]rest.Storage, bool, error) {
 	if !apiResourceConfigSource.ResourceEnabled(corev1.SchemeGroupVersion.WithResource("namespaces")) {
 		return nil, false, nil
 	}
@@ -53,7 +53,7 @@ func (NamepsaceLegacyRESTStorageProvider) NewRESTStorage(apiResourceConfigSource
 	return restStorage, true, nil
 }
 
-func (NamepsaceLegacyRESTStorageProvider) PostStartHook() (string, genericapiserver.PostStartHookFunc, error) {
+func (NamespaceLegacyRESTStorageProvider) PostStartHook() (string, genericapiserver.PostStartHookFunc, error) {
 	nsInit := NewNamespaceInitializer()
 	return "ensure-system-namespaces", nsInit.PostStartHook, nil
 }

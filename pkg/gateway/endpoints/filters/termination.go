@@ -18,9 +18,10 @@ import (
 	"net/http"
 
 	"github.com/gobeam/stringy"
+	"k8s.io/apiserver/pkg/endpoints/responsewriter"
+
 	"github.com/kubewharf/kubegateway/pkg/gateway/endpoints/request"
 	"github.com/kubewharf/kubegateway/pkg/gateway/metrics"
-	"k8s.io/apiserver/pkg/endpoints/responsewriter"
 )
 
 func WithTerminationMetrics(handler http.Handler) http.Handler {

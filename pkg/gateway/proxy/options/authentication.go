@@ -18,11 +18,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kubewharf/apiserver-runtime/pkg/server/authenticator"
-	"github.com/kubewharf/apiserver-runtime/pkg/server/options"
 	"github.com/spf13/pflag"
 	"k8s.io/apiserver/pkg/authentication/request/x509"
 	genericserver "k8s.io/apiserver/pkg/server"
+	genericoptions "k8s.io/apiserver/pkg/server/options"
 	openapicommon "k8s.io/kube-openapi/pkg/common"
 
 	"github.com/kubewharf/kubegateway/pkg/clusters"
@@ -30,12 +29,18 @@ import (
 )
 
 type AuthenticationOptions struct {
+	APIAudiences  []string
+	ClientCert    *genericoptions.ClientCertAuthenticationOptions
+	RequestHeader *genericoptions.RequestHeaderAuthenticationOptions
+
 	TokenSuccessCacheTTL time.Duration
 	TokenFailureCacheTTL time.Duration
 }
 
 func NewAuthenticationOptions() *AuthenticationOptions {
 	o := &AuthenticationOptions{
+		ClientCert:           &genericoptions.ClientCertAuthenticationOptions{},
+		RequestHeader:        &genericoptions.RequestHeaderAuthenticationOptions{},
 		TokenSuccessCacheTTL: 600 * time.Second, // 10 minutes
 		TokenFailureCacheTTL: 10 * time.Second,
 	}
@@ -43,18 +48,35 @@ func NewAuthenticationOptions() *AuthenticationOptions {
 }
 
 func (o *AuthenticationOptions) Validate() []error {
-	return nil
+	var errs []error
+	if o.RequestHeader != nil {
+		errs = append(errs, o.RequestHeader.Validate()...)
+	}
+	return errs
 }
 
 func (o *AuthenticationOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.DurationVar(&o.TokenSuccessCacheTTL, "proxy-authentication-token-success-cache-ttl", o.TokenSuccessCacheTTL,
-		"The duration to cache seccess responses from the upstream token request authenticator.")
-	fs.DurationVar(&o.TokenFailureCacheTTL, "proxy-authentication-token-failure-cache-ttl", o.TokenFailureCacheTTL,
+	fs.StringSliceVar(&o.APIAudiences, "api-audiences", o.APIAudiences, ""+
+		"Identifiers of the API. The service account token authenticator will validate that "+
+		"tokens used against the API are bound to at least one of these audiences. If the "+
+		"--service-account-issuer flag is configured and this flag is not, this field "+
+		"defaults to a single element list containing the issuer URL.")
+
+	if o.ClientCert != nil {
+		o.ClientCert.AddFlags(fs)
+	}
+
+	if o.RequestHeader != nil {
+		o.RequestHeader.AddFlags(fs)
+	}
+
+	fs.DurationVar(&o.TokenSuccessCacheTTL, "authentication-token-success-cache-ttl", o.TokenSuccessCacheTTL,
+		"The duration to cache success responses from the upstream token request authenticator.")
+	fs.DurationVar(&o.TokenFailureCacheTTL, "authentication-token-failure-cache-ttl", o.TokenFailureCacheTTL,
 		"The duration to cache failure responses from the upstream token request authenticator.")
 }
 
 func (o *AuthenticationOptions) ToAuthenticationConfig(
-	controlplaneAutheNConfig authenticator.Config,
 	sniVerifyOptionsProvider x509.SNIVerifyOptionsProvider,
 	clientProvider clusters.ClientProvider,
 ) (*proxyauthenticator.AuthenricatorConfig, error) {
@@ -64,18 +86,26 @@ func (o *AuthenticationOptions) ToAuthenticationConfig(
 	cfg := proxyauthenticator.AuthenricatorConfig{
 		TokenSuccessCacheTTL: o.TokenSuccessCacheTTL,
 		TokenFailureCacheTTL: o.TokenFailureCacheTTL,
-		APIAudiences:         controlplaneAutheNConfig.GetAPIAudiences(),
+		APIAudiences:         o.APIAudiences,
 		Anonymous:            true,
 	}
 
-	if clientCert := controlplaneAutheNConfig.GetClientCert(); clientCert != nil {
-		// cfg.ClientCertificateCAContentProvider =  clientCert {}
+	if o.ClientCert != nil {
+		clientCAContentProvider, err := o.ClientCert.GetClientCAContentProvider()
+		if err != nil {
+			return nil, err
+		}
+
 		cfg.ClientCert = &proxyauthenticator.ClientCertAuthenticationConfig{
-			CAContentProvider: clientCert.CAContentProvider,
+			CAContentProvider: clientCAContentProvider,
 		}
 	}
 
-	if requestHeader := controlplaneAutheNConfig.GetRequestHeaderConfig(); requestHeader != nil {
+	if o.RequestHeader != nil {
+		requestHeader, err := o.RequestHeader.ToAuthenticationRequestHeaderConfig()
+		if err != nil {
+			return nil, err
+		}
 		cfg.RequestHeaderConfig = requestHeader
 	}
 
@@ -102,19 +132,13 @@ func (o *AuthenticationOptions) ApplyTo(
 	openAPIConfig *openapicommon.Config,
 	sniVerifyOptionsProvider x509.SNIVerifyOptionsProvider,
 	clientProvider clusters.ClientProvider,
-	controlplaneauthnOptions *options.AuthenticationOptions,
 ) error {
 	if o == nil {
 		authenticationInfo.Authenticator = nil
 		return nil
 	}
 
-	controlplaneAutheNConfig, err := controlplaneauthnOptions.ToAuthenticationConfig()
-	if err != nil {
-		return err
-	}
-
-	cfg, err := o.ToAuthenticationConfig(controlplaneAutheNConfig, sniVerifyOptionsProvider, clientProvider)
+	cfg, err := o.ToAuthenticationConfig(sniVerifyOptionsProvider, clientProvider)
 	if err != nil {
 		return err
 	}
@@ -135,11 +159,11 @@ func (o *AuthenticationOptions) ApplyTo(
 	authenticationInfo.APIAudiences = cfg.APIAudiences
 
 	// create authenticator
-	authenticator, securityDefinitions, err := cfg.New()
+	req, securityDefinitions, err := cfg.New()
 	if err != nil {
 		return err
 	}
-	authenticationInfo.Authenticator = authenticator
+	authenticationInfo.Authenticator = req
 	if openAPIConfig != nil {
 		openAPIConfig.SecurityDefinitions = securityDefinitions
 	}

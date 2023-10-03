@@ -61,7 +61,7 @@ func Test_calQPS(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := calQPS(tt.args.qps, tt.args.qpsDivisor); got != tt.want {
+			if got := calcQPS(tt.args.qps, tt.args.qpsDivisor); got != tt.want {
 				t.Errorf("calQPS() = %v, want %v", got, tt.want)
 			}
 		})

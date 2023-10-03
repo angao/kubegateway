@@ -105,14 +105,14 @@ func extraToString(in map[string][]string) string {
 	if len(in) == 0 {
 		return ""
 	}
-	keys := []string{}
+	var keys []string
 	for k := range in {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	b := strings.Builder{}
 	b.WriteString("map{")
-	v := []string{}
+	var v []string
 	for _, k := range keys {
 		sort.Strings(in[k])
 		v = append(v, fmt.Sprintf("%s=%v", k, in[k]))
@@ -222,7 +222,7 @@ func headerKeyEscape(key string) string {
 		if shouldEscape(b) {
 			// %-encode bytes that should be escaped:
 			// https://tools.ietf.org/html/rfc3986#section-2.1
-			fmt.Fprintf(&buf, "%%%02X", b)
+			_, _ = fmt.Fprintf(&buf, "%%%02X", b)
 			continue
 		}
 		buf.WriteByte(b)

@@ -28,14 +28,14 @@ import (
 )
 
 type endpointStatus struct {
-	Healthy  bool
+	Ready    bool
 	Reason   string
 	Message  string
 	Disabled bool
 }
 
 func (s endpointStatus) IsReady() bool {
-	return !s.Disabled && s.Healthy
+	return !s.Disabled && s.Ready
 }
 
 type EndpointInfo struct {
@@ -49,8 +49,8 @@ type EndpointInfo struct {
 	proxyUpgradeConfig *rest.Config
 	// http2 proxy round tripper
 	ProxyTransport http.RoundTripper
-	// http1 proxy round tripper for websockt
-	PorxyUpgradeTransport http.RoundTripper
+	// http1 proxy round tripper for websocket
+	ProxyUpgradeTransport http.RoundTripper
 
 	clientset kubernetes.Interface
 
@@ -72,13 +72,13 @@ func (e *EndpointInfo) SetDisabled(disabled bool) {
 	}
 }
 
-func (e *EndpointInfo) UpdateStatus(healthy bool, reason, message string) {
-	if !healthy {
+func (e *EndpointInfo) UpdateStatus(ready bool, reason, message string) {
+	if !ready {
 		metrics.RecordUnhealthyUpstream(e.Cluster, e.Endpoint, reason)
 	}
-	if e.status.Healthy != healthy {
+	if e.status.Ready != ready {
 		// healthy changed
-		e.status.Healthy = healthy
+		e.status.Ready = ready
 		e.status.Reason = reason
 		e.status.Message = message
 		e.recordStatusChange()
@@ -87,8 +87,8 @@ func (e *EndpointInfo) UpdateStatus(healthy bool, reason, message string) {
 
 func (e *EndpointInfo) recordStatusChange() {
 	klog.V(1).Infof(
-		"[endpoint info] endpoint status changed, cluster=%q, endpoint=%q, disabled=%v, healthy=%v, reason=%q, message=%q",
-		e.Cluster, e.Endpoint, e.status.Disabled, e.status.Healthy, e.status.Reason, e.status.Message,
+		"[endpoint info] endpoint status changed, cluster=%q, endpoint=%q, disabled=%v, ready=%v, reason=%q, message=%q",
+		e.Cluster, e.Endpoint, e.status.Disabled, e.status.Ready, e.status.Reason, e.status.Message,
 	)
 }
 
@@ -100,8 +100,8 @@ func (e *EndpointInfo) UnreadyReason() string {
 	message := ""
 	if e.status.Disabled {
 		message = fmt.Sprintf("endpoint=%q is disabled.", e.Endpoint)
-	} else if !e.status.Healthy {
-		message = fmt.Sprintf("endpoint=%q is unhealthy, reason=%q, message=%q.", e.Endpoint, e.status.Reason, e.status.Message)
+	} else if !e.status.Ready {
+		message = fmt.Sprintf("endpoint=%q is not ready, reason=%q, message=%q.", e.Endpoint, e.status.Reason, e.status.Message)
 	}
 	return message
 }
@@ -142,7 +142,7 @@ func (m *EndpointInfoMap) Range(rangeFn func(name string, info *EndpointInfo) bo
 }
 
 func (m *EndpointInfoMap) Names() []string {
-	names := []string{}
+	var names []string
 	m.Range(func(name string, info *EndpointInfo) bool {
 		names = append(names, name)
 		return true

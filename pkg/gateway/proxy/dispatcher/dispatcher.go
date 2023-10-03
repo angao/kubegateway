@@ -67,16 +67,19 @@ func (d *dispatcher) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		d.responseError(errors.NewInternalError(fmt.Errorf("no user info found in request context")), w, req, statusReasonInvalidRequestContext)
 		return
 	}
-	extraInfo, ok := request.ExtraReqeustInfoFrom(ctx)
+
+	extraInfo, ok := request.ExtraRequestInfoFrom(ctx)
 	if !ok {
 		d.responseError(errors.NewInternalError(fmt.Errorf("no extra request info found in request context")), w, req, statusReasonInvalidRequestContext)
 		return
 	}
+
 	requestInfo, ok := genericapirequest.RequestInfoFrom(ctx)
 	if !ok {
 		d.responseError(errors.NewInternalError(fmt.Errorf("no request info found in request context")), w, req, statusReasonInvalidRequestContext)
 		return
 	}
+
 	cluster, ok := d.Get(extraInfo.Hostname)
 	if !ok {
 		d.responseError(errors.NewServiceUnavailable(fmt.Sprintf("the request cluster(%s) is not being proxied", extraInfo.Hostname)), w, req, statusReasonClusterNotBeingProxied)
@@ -98,20 +101,20 @@ func (d *dispatcher) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		d.responseError(errors.NewInternalError(err), w, req, statusReasonInvalidRequestContext)
 		return
 	}
+
 	endpointPicker, err := cluster.MatchAttributes(requestAttributes)
 	if err != nil {
 		d.responseError(errors.NewInternalError(err), w, req, normalizeErrToReason(err))
 		return
 	}
 
-	flowcontrol := endpointPicker.FlowControl()
-	if !flowcontrol.TryAcquire() {
-		//TODO: exempt master request and long running request
-		// add metrics
-		d.responseError(errors.NewTooManyRequests(fmt.Sprintf("too many requests for cluster(%s), limited by flowControl(%v)", extraInfo.Hostname, flowcontrol.String()), retryAfter), w, req, statusReasonRateLimited)
+	flowControl := endpointPicker.FlowControl()
+	if !flowControl.TryAcquire() {
+		// TODO: exempt master request and long running request add metrics
+		d.responseError(errors.NewTooManyRequests(fmt.Sprintf("too many requests for cluster(%s), limited by flowControl(%v)", extraInfo.Hostname, flowControl.String()), retryAfter), w, req, statusReasonRateLimited)
 		return
 	}
-	defer flowcontrol.Release()
+	defer flowControl.Release()
 
 	endpoint, err := endpointPicker.Pop()
 	if err != nil {
@@ -121,7 +124,7 @@ func (d *dispatcher) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	transport := endpoint.ProxyTransport
 	if httpstream.IsUpgradeRequest(req) {
-		transport = endpoint.PorxyUpgradeTransport
+		transport = endpoint.ProxyUpgradeTransport
 	}
 
 	ep, err := url.Parse(endpoint.Endpoint)
@@ -136,14 +139,15 @@ func (d *dispatcher) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	location := &url.URL{}
-	location.Scheme = ep.Scheme
-	location.Host = ep.Host
-	location.Path = req.URL.Path
-	location.RawQuery = req.URL.Query().Encode()
+	location := &url.URL{
+		Scheme:   ep.Scheme,
+		Host:     ep.Host,
+		Path:     req.URL.Path,
+		RawQuery: req.URL.Query().Encode(),
+	}
 
 	newReq, cancel := newRequestForProxy(location, req, extraInfo.Hostname)
-	// close this request if endpoint is stoped
+	// close this request if endpoint is stopped
 	go func() {
 		select {
 		case <-newReq.Context().Done():

@@ -19,26 +19,25 @@ import (
 )
 
 type Options struct {
-	ControlPlane *ControlPlaneServerRunOptions
-	Proxy        *ProxyOptions
+	Proxy *ProxyOptions
 }
 
 func NewOptions() *Options {
 	return &Options{
-		ControlPlane: NewControlPlaneServerRunOptions(),
-		Proxy:        NewProxyOptions(),
+		Proxy: NewProxyOptions(),
 	}
 }
 
 func (o *Options) Complete() error {
-	return o.ControlPlane.Complete()
+	return o.Proxy.Complete()
 }
 
 func (o *Options) Flags() cliflag.NamedFlagSets {
-	fss := o.ControlPlane.Flags()
-	for k, v := range o.Proxy.Flags().FlagSets {
-		fss.Order = append(fss.Order, k)
-		fss.FlagSets[k] = v
-	}
-	return fss
+	return o.Proxy.Flags()
+}
+
+func (o *Options) Validate() []error {
+	var errs []error
+	errs = append(errs, o.Proxy.Validate()...)
+	return errs
 }

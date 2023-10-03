@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/zoumo/golib/lock/maxinflight"
 	"k8s.io/client-go/util/flowcontrol"
 
 	proxyv1alpha1 "github.com/kubewharf/kubegateway/pkg/apis/proxy/v1alpha1"
+	"github.com/kubewharf/kubegateway/pkg/flowcontrol/maxinflight"
 )
 
 type FlowControls struct {
@@ -60,8 +60,7 @@ func (f *FlowControls) Len() int {
 }
 
 type FlowControl interface {
-	// TryAccept returns true if a token is taken immediately. Otherwise,
-	// it returns false.
+	// TryAcquire returns true if a token is taken immediately. Otherwise, it returns false.
 	TryAcquire() bool
 	// Release add a token back to the lock
 	Release()

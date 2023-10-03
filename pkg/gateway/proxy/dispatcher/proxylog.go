@@ -138,7 +138,7 @@ func (rw *responseWriterDelegator) MonitorAfterProxy() {
 		return
 	}
 
-	// we only monitor forwarded proxy reqeust here
+	// we only monitor forwarded proxy request here
 	metrics.MonitorProxyRequest(
 		rw.req,
 		rw.host,

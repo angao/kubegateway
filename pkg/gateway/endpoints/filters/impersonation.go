@@ -42,8 +42,8 @@ const (
 	resourceServiceAccounts = "serviceaccounts"
 )
 
-// the fllowing code is copied from k8s.io/apiserver/pkg/endpoint/filters/impersonation.go and delete httplog for proxy
-//
+// the following code is copied from k8s.io/apiserver/pkg/endpoint/filters/impersonation.go and delete httplog for proxy
+
 // WithNoLoggingImpersonation is a filter that will inspect and check requests that attempt to change the user.Info for their requests
 func WithNoLoggingImpersonation(handler http.Handler, a authorizer.Authorizer, s runtime.NegotiatedSerializer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -71,9 +71,9 @@ func WithNoLoggingImpersonation(handler http.Handler, a authorizer.Authorizer, s
 
 		// make sure we're allowed to impersonate each thing we're requesting.  While we're iterating through, start building username
 		// and group information
-		username := ""
-		groups := []string{}
-		userExtra := map[string][]string{}
+		var username string
+		var groups []string
+		userExtra := make(map[string][]string)
 		for _, impersonationRequest := range impersonationRequests {
 			gvk := impersonationRequest.GetObjectKind().GroupVersionKind()
 			actingAsAttributes := &authorizer.AttributesRecord{
@@ -162,6 +162,7 @@ func WithNoLoggingImpersonation(handler http.Handler, a authorizer.Authorizer, s
 			Groups: groups,
 			Extra:  userExtra,
 		}
+
 		req = req.WithContext(request.WithUser(ctx, newUser))
 
 		ae := request.AuditEventFrom(ctx)
@@ -188,11 +189,11 @@ func unescapeExtraKey(encodedKey string) string {
 	return key
 }
 
-// buildImpersonationRequests returns a list of objectreferences that represent the different things we're requesting to impersonate.
+// buildImpersonationRequests returns a list of object references that represent the different things we're requesting to impersonate.
 // Also includes a map[string][]string representing user.Info.Extra
 // Each request must be authorized against the current user before switching contexts.
 func buildImpersonationRequests(headers http.Header) ([]v1.ObjectReference, error) {
-	impersonationRequests := []v1.ObjectReference{}
+	var impersonationRequests []v1.ObjectReference
 
 	requestedUser := headers.Get(authenticationv1.ImpersonateUserHeader)
 	hasUser := len(requestedUser) > 0
@@ -229,7 +230,7 @@ func buildImpersonationRequests(headers http.Header) ([]v1.ObjectReference, erro
 					APIVersion: authenticationv1.SchemeGroupVersion.String(),
 					Name:       value,
 					// ObjectReference doesn't have a subresource field.  FieldPath is close and available, so we'll use that
-					// TODO fight the good fight for ObjectReference to refer to resources and subresources
+					// TODO fight the good fight for ObjectReference to refer to resources and subResources
 					FieldPath: extraKey,
 				})
 		}
@@ -238,6 +239,5 @@ func buildImpersonationRequests(headers http.Header) ([]v1.ObjectReference, erro
 	if (hasGroups || hasUserExtra) && !hasUser {
 		return nil, fmt.Errorf("requested %v without impersonating a user", impersonationRequests)
 	}
-
 	return impersonationRequests, nil
 }

@@ -28,12 +28,12 @@ import (
 )
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
-
-	command := app.NewKubeGatewayCommand()
-
+	rd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rd.Seed(time.Now().UnixNano())
 	logs.InitLogs()
 	defer logs.FlushLogs()
+
+	command := app.NewKubeGatewayCommand()
 
 	if err := command.Execute(); err != nil {
 		os.Exit(1)

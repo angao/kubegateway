@@ -16,7 +16,7 @@ vendor/
 
 # Output of debug, build, generated file, or log
 .DS_Store
-output/
+_output/
 bin/
 ./generated/
 apiserver.local.config/

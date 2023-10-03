@@ -91,17 +91,17 @@ func (h *UpgradeAwareHandler) ServeHTTP(w http.ResponseWriter, req *http.Request
 		newReq.URL = &loc
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: h.Location.Scheme, Host: h.Location.Host})
-	proxy.Transport = h.Transport
-	proxy.FlushInterval = h.FlushInterval
-	proxy.ErrorLog = log.New(noSuppressPanicError{}, "", log.LstdFlags)
+	reverseProxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: h.Location.Scheme, Host: h.Location.Host})
+	reverseProxy.Transport = h.Transport
+	reverseProxy.FlushInterval = h.FlushInterval
+	reverseProxy.ErrorLog = log.New(noSuppressPanicError{}, "", log.LstdFlags)
 	if h.Responder != nil {
 		// if an optional error interceptor/responder was provided wire it
 		// the custom responder might be used for providing a unified error reporting
 		// or supporting retry mechanisms by not sending non-fatal errors to the clients
-		proxy.ErrorHandler = h.Responder.Error
+		reverseProxy.ErrorHandler = h.Responder.Error
 	}
-	proxy.ServeHTTP(w, newReq)
+	reverseProxy.ServeHTTP(w, newReq)
 }
 
 type noSuppressPanicError struct{}

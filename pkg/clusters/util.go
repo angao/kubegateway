@@ -42,7 +42,7 @@ func buildClusterRESTConfig(cluster *proxyv1alpha1.UpstreamCluster) (*rest.Confi
 	cfg.BearerToken = string(cluster.Spec.ClientConfig.BearerToken)
 
 	if cluster.Spec.ClientConfig.QPS > 0 {
-		qps := calQPS(cluster.Spec.ClientConfig.QPS, cluster.Spec.ClientConfig.QPSDivisor)
+		qps := calcQPS(cluster.Spec.ClientConfig.QPS, cluster.Spec.ClientConfig.QPSDivisor)
 		cfg.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(qps, int(cluster.Spec.ClientConfig.Burst))
 	}
 
@@ -59,7 +59,7 @@ func buildClusterRESTConfig(cluster *proxyv1alpha1.UpstreamCluster) (*rest.Confi
 	return cfg, nil
 }
 
-func calQPS(qps int32, qpsDivisor int32) float32 {
+func calcQPS(qps int32, qpsDivisor int32) float32 {
 	ret := float32(qps)
 	if qpsDivisor > 1 {
 		ret /= float32(qpsDivisor)
